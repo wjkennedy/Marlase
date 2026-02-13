@@ -121,23 +121,14 @@ if [[ "$SKIP_CONFIG" -eq 0 ]]; then
   # Creality boards with dedicated probe input need this disabled.
   opt_disable Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN || true
 
-  opt_enable LASER_FEATURE
-  opt_enable SPINDLE_LASER_USE_PWM
+  # Fan-header laser workflow: use M106/M107 (synchronized), not spindle PWM pins.
+  opt_disable LASER_FEATURE || true
+  opt_disable SPINDLE_LASER_USE_PWM || true
   opt_enable LASER_SYNCHRONOUS_M106_M107
 
-  # Route laser control pin.
-  # Creality v4.x boards expose one controllable fan MOSFET on PA0 (labeled fan output on many boards).
-  # Some other Creality boards expose FAN1; use that where available.
-  case "$BOARD" in
-    BOARD_CREALITY_V24S1_301|BOARD_CREALITY_V24S1_301F4|BOARD_CREALITY_V24S1)
-      opt_set SPINDLE_LASER_PWM_PIN PC0
-      opt_set SPINDLE_LASER_ENA_PIN PC0
-      ;;
-    *)
-      opt_set SPINDLE_LASER_PWM_PIN PA0
-      opt_set SPINDLE_LASER_ENA_PIN PA0
-      ;;
-  esac
+  # Ensure no conflicting spindle/laser pin overrides remain in Configuration.h.
+  opt_disable SPINDLE_LASER_PWM_PIN || true
+  opt_disable SPINDLE_LASER_ENA_PIN || true
 
   # Free auxiliary fan assignment to avoid pin conflicts when laser uses fan MOSFET.
   opt_set E0_AUTO_FAN_PIN -1

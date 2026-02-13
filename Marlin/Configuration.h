@@ -20,8 +20,8 @@
  *
  */
 #pragma once
-#define SPINDLE_LASER_PWM_PIN PA0
-#define SPINDLE_LASER_ENA_PIN PA0
+//#define SPINDLE_LASER_PWM_PIN PA0
+//#define SPINDLE_LASER_ENA_PIN PA0
 
 /**
  * Configuration.h
