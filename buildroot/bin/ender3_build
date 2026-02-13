@@ -25,6 +25,24 @@ USAGE
 
 [[ -d Marlin/src ]] || { echo "Run this from the Marlin repo root."; exit 1; }
 command -v pio >/dev/null || { echo "PlatformIO CLI ('pio') not found in PATH."; exit 1; }
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+[[ -n "$PYTHON_BIN" ]] || { echo "Python 3 is required."; exit 1; }
+
+opt_set() { "$PYTHON_BIN" ./buildroot/bin/opt_set "$@"; }
+opt_enable() { "$PYTHON_BIN" ./buildroot/bin/opt_enable "$@"; }
+opt_disable() { "$PYTHON_BIN" ./buildroot/bin/opt_disable "$@"; }
+
+# Prefer default PlatformIO home, but fall back to repo-local if not writable.
+if [[ -z "${PLATFORMIO_CORE_DIR:-}" ]]; then
+  PIO_DEFAULT_HOME="${HOME:-}/.platformio"
+  if [[ -n "${HOME:-}" ]] && [[ -d "$PIO_DEFAULT_HOME" ]] && [[ -w "$PIO_DEFAULT_HOME" ]]; then
+    :
+  else
+    export PLATFORMIO_CORE_DIR="$PWD/.pio-core"
+    mkdir -p "$PLATFORMIO_CORE_DIR"
+    echo "Using repo-local PlatformIO home: $PLATFORMIO_CORE_DIR"
+  fi
+fi
 
 BOARD="BOARD_CREALITY_V422"
 MCU="re"
@@ -75,7 +93,8 @@ resolve_env() {
       ;;
   esac
 
-  case "${MCU,,}" in
+  MCU_LC="$(printf '%s' "$MCU" | tr '[:upper:]' '[:lower:]')"
+  case "$MCU_LC" in
     re) echo "STM32F103RE_creality" ;;
     rc) echo "STM32F103RC_creality" ;;
     *)
@@ -90,26 +109,38 @@ TARGET_ENV="$(resolve_env)"
 if [[ "$SKIP_CONFIG" -eq 0 ]]; then
   echo "Applying Ender 3 BLTouch + laser config..."
 
-  ./buildroot/bin/opt_set MOTHERBOARD "$BOARD"
+  opt_set MOTHERBOARD "$BOARD"
+  opt_set SERIAL_PORT 1
+  opt_enable FAN_SOFT_PWM
 
-  ./buildroot/bin/opt_enable BLTOUCH
-  ./buildroot/bin/opt_enable USE_PROBE_FOR_Z_HOMING
-  ./buildroot/bin/opt_enable Z_SAFE_HOMING
-  ./buildroot/bin/opt_enable AUTO_BED_LEVELING_BILINEAR
+  opt_enable BLTOUCH
+  opt_enable USE_PROBE_FOR_Z_HOMING
+  opt_enable Z_SAFE_HOMING
+  opt_enable AUTO_BED_LEVELING_BILINEAR
 
   # Creality boards with dedicated probe input need this disabled.
-  ./buildroot/bin/opt_disable Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN || true
+  opt_disable Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN || true
 
-  ./buildroot/bin/opt_enable LASER_FEATURE
-  ./buildroot/bin/opt_enable SPINDLE_LASER_USE_PWM
-  ./buildroot/bin/opt_enable LASER_SYNCHRONOUS_M106_M107
+  opt_enable LASER_FEATURE
+  opt_enable SPINDLE_LASER_USE_PWM
+  opt_enable LASER_SYNCHRONOUS_M106_M107
 
-  # Route laser control to K-FAN1/FAN1 pin.
-  ./buildroot/bin/opt_set SPINDLE_LASER_PWM_PIN FAN1_PIN
-  ./buildroot/bin/opt_set SPINDLE_LASER_ENA_PIN FAN1_PIN
+  # Route laser control pin.
+  # Creality v4.x boards expose one controllable fan MOSFET on PA0 (labeled fan output on many boards).
+  # Some other Creality boards expose FAN1; use that where available.
+  case "$BOARD" in
+    BOARD_CREALITY_V24S1_301|BOARD_CREALITY_V24S1_301F4|BOARD_CREALITY_V24S1)
+      opt_set SPINDLE_LASER_PWM_PIN PC0
+      opt_set SPINDLE_LASER_ENA_PIN PC0
+      ;;
+    *)
+      opt_set SPINDLE_LASER_PWM_PIN PA0
+      opt_set SPINDLE_LASER_ENA_PIN PA0
+      ;;
+  esac
 
-  # Free FAN1 from auto-fan assignment if the selected board uses it.
-  ./buildroot/bin/opt_set E0_AUTO_FAN_PIN -1
+  # Free auxiliary fan assignment to avoid pin conflicts when laser uses fan MOSFET.
+  opt_set E0_AUTO_FAN_PIN -1
 fi
 
 if [[ "$DO_CLEAN" -eq 1 ]]; then
