@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: ./buildroot/bin/ender3_build [options]
+
+Configure and build Marlin for Ender 3 + BLTouch + laser on K-FAN1.
+
+Options:
+  --board <BOARD_...>   Marlin board define (default: BOARD_CREALITY_V422)
+  --mcu <re|rc>         MCU variant for Creality v4.x boards (default: re)
+  --env <pio_env>       Explicit PlatformIO env override
+  --skip-config         Build only, do not edit Configuration*.h
+  --clean               Remove previous .pio/build output before build
+  --upload              Upload instead of build
+  -h, --help            Show this help
+
+Examples:
+  ./buildroot/bin/ender3_build
+  ./buildroot/bin/ender3_build --board BOARD_CREALITY_V427 --mcu rc
+  ./buildroot/bin/ender3_build --env STM32F103RE_creality --upload
+USAGE
+}
+
+[[ -d Marlin/src ]] || { echo "Run this from the Marlin repo root."; exit 1; }
+command -v pio >/dev/null || { echo "PlatformIO CLI ('pio') not found in PATH."; exit 1; }
+
+BOARD="BOARD_CREALITY_V422"
+MCU="re"
+ENV_OVERRIDE=""
+SKIP_CONFIG=0
+DO_CLEAN=0
+DO_UPLOAD=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --board)
+      BOARD="${2:-}"; shift 2 ;;
+    --mcu)
+      MCU="${2:-}"; shift 2 ;;
+    --env)
+      ENV_OVERRIDE="${2:-}"; shift 2 ;;
+    --skip-config)
+      SKIP_CONFIG=1; shift ;;
+    --clean)
+      DO_CLEAN=1; shift ;;
+    --upload)
+      DO_UPLOAD=1; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      echo "Unknown option: $1"; usage; exit 2 ;;
+  esac
+done
+
+resolve_env() {
+  if [[ -n "$ENV_OVERRIDE" ]]; then
+    echo "$ENV_OVERRIDE"
+    return
+  fi
+
+  case "$BOARD" in
+    BOARD_CREALITY_V422_GD32_MFL|BOARD_CREALITY_V427_GD32_MFL)
+      echo "GD32F303RE_creality_mfl"
+      return
+      ;;
+    BOARD_CREALITY_V24S1_301F4)
+      echo "STM32F401RC_creality"
+      return
+      ;;
+    BOARD_CREALITY_F401RE)
+      echo "STM32F401RE_creality"
+      return
+      ;;
+  esac
+
+  case "${MCU,,}" in
+    re) echo "STM32F103RE_creality" ;;
+    rc) echo "STM32F103RC_creality" ;;
+    *)
+      echo "Invalid --mcu '$MCU' (use re or rc)." >&2
+      exit 2
+      ;;
+  esac
+}
+
+TARGET_ENV="$(resolve_env)"
+
+if [[ "$SKIP_CONFIG" -eq 0 ]]; then
+  echo "Applying Ender 3 BLTouch + laser config..."
+
+  ./buildroot/bin/opt_set MOTHERBOARD "$BOARD"
+
+  ./buildroot/bin/opt_enable BLTOUCH
+  ./buildroot/bin/opt_enable USE_PROBE_FOR_Z_HOMING
+  ./buildroot/bin/opt_enable Z_SAFE_HOMING
+  ./buildroot/bin/opt_enable AUTO_BED_LEVELING_BILINEAR
+
+  # Creality boards with dedicated probe input need this disabled.
+  ./buildroot/bin/opt_disable Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN || true
+
+  ./buildroot/bin/opt_enable LASER_FEATURE
+  ./buildroot/bin/opt_enable SPINDLE_LASER_USE_PWM
+  ./buildroot/bin/opt_enable LASER_SYNCHRONOUS_M106_M107
+
+  # Route laser control to K-FAN1/FAN1 pin.
+  ./buildroot/bin/opt_set SPINDLE_LASER_PWM_PIN FAN1_PIN
+  ./buildroot/bin/opt_set SPINDLE_LASER_ENA_PIN FAN1_PIN
+
+  # Free FAN1 from auto-fan assignment if the selected board uses it.
+  ./buildroot/bin/opt_set E0_AUTO_FAN_PIN -1
+fi
+
+if [[ "$DO_CLEAN" -eq 1 ]]; then
+  echo "Cleaning previous build output..."
+  rm -rf .pio/build
+fi
+
+if [[ "$DO_UPLOAD" -eq 1 ]]; then
+  echo "Uploading with env: $TARGET_ENV"
+  pio run -e "$TARGET_ENV" -t upload
+else
+  echo "Building with env: $TARGET_ENV"
+  pio run -e "$TARGET_ENV"
+fi
