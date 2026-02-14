@@ -11,6 +11,7 @@ Options:
   --board <BOARD_...>   Marlin board define (default: BOARD_CREALITY_V422)
   --mcu <re|rc>         MCU variant for Creality v4.x boards (default: re)
   --env <pio_env>       Explicit PlatformIO env override
+  --lcd <type>          LCD type: dwin | 12864-ret6 | 12864-vet6 | none
   --skip-config         Build only, do not edit Configuration*.h
   --clean               Remove previous .pio/build output before build
   --upload              Upload instead of build
@@ -18,6 +19,8 @@ Options:
 
 Examples:
   ./buildroot/bin/ender3_build
+  ./buildroot/bin/ender3_build --lcd dwin
+  ./buildroot/bin/ender3_build --lcd 12864-ret6
   ./buildroot/bin/ender3_build --board BOARD_CREALITY_V427 --mcu rc
   ./buildroot/bin/ender3_build --env STM32F103RE_creality --upload
 USAGE
@@ -29,6 +32,7 @@ PYTHON_BIN="$(command -v python3 || command -v python || true)"
 [[ -n "$PYTHON_BIN" ]] || { echo "Python 3 is required."; exit 1; }
 
 opt_set() { "$PYTHON_BIN" ./buildroot/bin/opt_set "$@"; }
+opt_add() { "$PYTHON_BIN" ./buildroot/bin/opt_add "$@"; }
 opt_enable() { "$PYTHON_BIN" ./buildroot/bin/opt_enable "$@"; }
 opt_disable() { "$PYTHON_BIN" ./buildroot/bin/opt_disable "$@"; }
 
@@ -47,6 +51,7 @@ fi
 BOARD="BOARD_CREALITY_V422"
 MCU="re"
 ENV_OVERRIDE=""
+LCD_TYPE=""
 SKIP_CONFIG=0
 DO_CLEAN=0
 DO_UPLOAD=0
@@ -59,6 +64,8 @@ while [[ $# -gt 0 ]]; do
       MCU="${2:-}"; shift 2 ;;
     --env)
       ENV_OVERRIDE="${2:-}"; shift 2 ;;
+    --lcd)
+      LCD_TYPE="${2:-}"; shift 2 ;;
     --skip-config)
       SKIP_CONFIG=1; shift ;;
     --clean)
@@ -106,6 +113,18 @@ resolve_env() {
 
 TARGET_ENV="$(resolve_env)"
 
+resolve_lcd_default() {
+  # Most Ender-3 V2 / V4.2.x setups use the DWIN display.
+  case "$BOARD" in
+    BOARD_CREALITY_V4|BOARD_CREALITY_V422|BOARD_CREALITY_V423|BOARD_CREALITY_V425|BOARD_CREALITY_V427)
+      echo "dwin"
+      ;;
+    *)
+      echo "none"
+      ;;
+  esac
+}
+
 if [[ "$SKIP_CONFIG" -eq 0 ]]; then
   echo "Applying Ender 3 BLTouch + laser config..."
 
@@ -132,6 +151,40 @@ if [[ "$SKIP_CONFIG" -eq 0 ]]; then
 
   # Free auxiliary fan assignment to avoid pin conflicts when laser uses fan MOSFET.
   opt_set E0_AUTO_FAN_PIN -1
+
+  # LCD selection
+  [[ -n "$LCD_TYPE" ]] || LCD_TYPE="$(resolve_lcd_default)"
+  case "$LCD_TYPE" in
+    dwin)
+      opt_enable SDSUPPORT
+      opt_enable DWIN_CREALITY_LCD
+      opt_disable CR10_STOCKDISPLAY || true
+      opt_disable RET6_12864_LCD || true
+      opt_disable VET6_12864_LCD || true
+      ;;
+    12864-ret6)
+      opt_disable DWIN_CREALITY_LCD || true
+      opt_enable CR10_STOCKDISPLAY
+      opt_enable RET6_12864_LCD || opt_add RET6_12864_LCD
+      opt_disable VET6_12864_LCD || true
+      ;;
+    12864-vet6)
+      opt_disable DWIN_CREALITY_LCD || true
+      opt_enable CR10_STOCKDISPLAY
+      opt_disable RET6_12864_LCD || true
+      opt_enable VET6_12864_LCD || opt_add VET6_12864_LCD
+      ;;
+    none)
+      opt_disable DWIN_CREALITY_LCD || true
+      opt_disable CR10_STOCKDISPLAY || true
+      opt_disable RET6_12864_LCD || true
+      opt_disable VET6_12864_LCD || true
+      ;;
+    *)
+      echo "Invalid --lcd '$LCD_TYPE' (use dwin, 12864-ret6, 12864-vet6, or none)."
+      exit 2
+      ;;
+  esac
 fi
 
 if [[ "$DO_CLEAN" -eq 1 ]]; then
