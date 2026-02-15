@@ -22,6 +22,8 @@
 #pragma once
 //#define SPINDLE_LASER_PWM_PIN PA0
 //#define SPINDLE_LASER_ENA_PIN PA0
+#define RET6_12864_LCD
+#define FAN0_PIN HEATER_BED_PIN
 
 /**
  * Configuration.h
@@ -70,7 +72,7 @@
 
 // Choose the name from boards.h that matches your setup
 #ifndef MOTHERBOARD
-  #define MOTHERBOARD BOARD_CREALITY_V422 // BOARD_RAMPS_14_EFB
+  #define MOTHERBOARD BOARD_MKS_GEN_13 // BOARD_CREALITY_V422 // BOARD_RAMPS_14_EFB
 #endif
 
 // @section serial
@@ -83,7 +85,7 @@
  *
  * :[-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
  */
-#define SERIAL_PORT 1
+#define SERIAL_PORT 0 // 1
 
 /**
  * Serial Port Baud Rate
@@ -590,7 +592,7 @@
 #define TEMP_SENSOR_5 0
 #define TEMP_SENSOR_6 0
 #define TEMP_SENSOR_7 0
-#define TEMP_SENSOR_BED 1
+#define TEMP_SENSOR_BED 0 // 1
 #define TEMP_SENSOR_PROBE 0
 #define TEMP_SENSOR_CHAMBER 0
 #define TEMP_SENSOR_COOLER 0
@@ -3626,7 +3628,7 @@
  * increment; at zero value, there are 128 effective control positions.
  * :[0,1,2,3,4,5,6,7]
  */
-#define SOFT_PWM_SCALE 0
+#define SOFT_PWM_SCALE 5
 
 /**
  * If SOFT_PWM_SCALE is set to a value higher than 0, dithering can be used to mitigate the

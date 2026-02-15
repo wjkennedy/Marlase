@@ -5,13 +5,14 @@ usage() {
   cat <<'USAGE'
 Usage: ./buildroot/bin/ender3_build [options]
 
-Configure and build Marlin for Ender 3 + BLTouch + laser on K-FAN1.
+Configure and build Marlin for Ender 3 / similar setups with BLTouch and fan-header laser.
 
 Options:
   --board <BOARD_...>   Marlin board define (default: BOARD_CREALITY_V422)
   --mcu <re|rc>         MCU variant for Creality v4.x boards (default: re)
   --env <pio_env>       Explicit PlatformIO env override
   --lcd <type>          LCD type: dwin | 12864-ret6 | 12864-vet6 | none
+  --laser-output <pin>  Laser output path: fan0 | bed (default: fan0)
   --skip-config         Build only, do not edit Configuration*.h
   --clean               Remove previous .pio/build output before build
   --upload              Upload instead of build
@@ -22,6 +23,7 @@ Examples:
   ./buildroot/bin/ender3_build --lcd dwin
   ./buildroot/bin/ender3_build --lcd 12864-ret6
   ./buildroot/bin/ender3_build --board BOARD_CREALITY_V427 --mcu rc
+  ./buildroot/bin/ender3_build --board BOARD_MKS_GEN_13 --laser-output bed --lcd none
   ./buildroot/bin/ender3_build --env STM32F103RE_creality --upload
 USAGE
 }
@@ -35,6 +37,7 @@ opt_set() { "$PYTHON_BIN" ./buildroot/bin/opt_set "$@"; }
 opt_add() { "$PYTHON_BIN" ./buildroot/bin/opt_add "$@"; }
 opt_enable() { "$PYTHON_BIN" ./buildroot/bin/opt_enable "$@"; }
 opt_disable() { "$PYTHON_BIN" ./buildroot/bin/opt_disable "$@"; }
+opt_disable_optional() { "$PYTHON_BIN" ./buildroot/bin/opt_disable "$1" >/dev/null 2>&1 || true; }
 
 # Prefer default PlatformIO home, but fall back to repo-local if not writable.
 if [[ -z "${PLATFORMIO_CORE_DIR:-}" ]]; then
@@ -52,6 +55,7 @@ BOARD="BOARD_CREALITY_V422"
 MCU="re"
 ENV_OVERRIDE=""
 LCD_TYPE=""
+LASER_OUTPUT="fan0"
 SKIP_CONFIG=0
 DO_CLEAN=0
 DO_UPLOAD=0
@@ -66,6 +70,8 @@ while [[ $# -gt 0 ]]; do
       ENV_OVERRIDE="${2:-}"; shift 2 ;;
     --lcd)
       LCD_TYPE="${2:-}"; shift 2 ;;
+    --laser-output)
+      LASER_OUTPUT="${2:-}"; shift 2 ;;
     --skip-config)
       SKIP_CONFIG=1; shift ;;
     --clean)
@@ -86,6 +92,10 @@ resolve_env() {
   fi
 
   case "$BOARD" in
+    BOARD_MKS_GEN_13|BOARD_MKS_GEN_L|BOARD_MKS_GEN_L_V2|BOARD_MKS_GEN_L_V21)
+      echo "mega2560"
+      return
+      ;;
     BOARD_CREALITY_V422_GD32_MFL|BOARD_CREALITY_V427_GD32_MFL)
       echo "GD32F303RE_creality_mfl"
       return
@@ -113,6 +123,17 @@ resolve_env() {
 
 TARGET_ENV="$(resolve_env)"
 
+resolve_serial_port() {
+  case "$BOARD" in
+    BOARD_CREALITY_V4|BOARD_CREALITY_V422|BOARD_CREALITY_V423|BOARD_CREALITY_V425|BOARD_CREALITY_V427|BOARD_CREALITY_V4210|BOARD_CREALITY_V431|BOARD_CREALITY_V431_A|BOARD_CREALITY_V431_B|BOARD_CREALITY_V431_C|BOARD_CREALITY_V431_D|BOARD_CREALITY_V452|BOARD_CREALITY_V453|BOARD_CREALITY_V24S1|BOARD_CREALITY_V24S1_301|BOARD_CREALITY_V25S1|BOARD_CREALITY_V24S1_301F4|BOARD_CREALITY_F401RE|BOARD_CREALITY_CR4NS|BOARD_CREALITY_V422_GD32_MFL|BOARD_CREALITY_V427_GD32_MFL)
+      echo "1"
+      ;;
+    *)
+      echo "0"
+      ;;
+  esac
+}
+
 resolve_lcd_default() {
   # Most Ender-3 V2 / V4.2.x setups use the DWIN display.
   case "$BOARD" in
@@ -125,12 +146,20 @@ resolve_lcd_default() {
   esac
 }
 
+is_mks_gen_board() {
+  case "$BOARD" in
+    BOARD_MKS_GEN_13|BOARD_MKS_GEN_L|BOARD_MKS_GEN_L_V2|BOARD_MKS_GEN_L_V21) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [[ "$SKIP_CONFIG" -eq 0 ]]; then
   echo "Applying Ender 3 BLTouch + laser config..."
 
   opt_set MOTHERBOARD "$BOARD"
-  opt_set SERIAL_PORT 1
+  opt_set SERIAL_PORT "$(resolve_serial_port)"
   opt_enable FAN_SOFT_PWM
+  opt_set SOFT_PWM_SCALE 5
 
   opt_enable BLTOUCH
   opt_enable USE_PROBE_FOR_Z_HOMING
@@ -138,47 +167,75 @@ if [[ "$SKIP_CONFIG" -eq 0 ]]; then
   opt_enable AUTO_BED_LEVELING_BILINEAR
 
   # Creality boards with dedicated probe input need this disabled.
-  opt_disable Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN || true
+  opt_disable_optional Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN
 
   # Fan-header laser workflow: use M106/M107 (synchronized), not spindle PWM pins.
-  opt_disable LASER_FEATURE || true
-  opt_disable SPINDLE_LASER_USE_PWM || true
+  opt_disable_optional LASER_FEATURE
+  opt_disable_optional SPINDLE_LASER_USE_PWM
   opt_enable LASER_SYNCHRONOUS_M106_M107
 
   # Ensure no conflicting spindle/laser pin overrides remain in Configuration.h.
-  opt_disable SPINDLE_LASER_PWM_PIN || true
-  opt_disable SPINDLE_LASER_ENA_PIN || true
+  opt_disable_optional SPINDLE_LASER_PWM_PIN
+  opt_disable_optional SPINDLE_LASER_ENA_PIN
 
   # Free auxiliary fan assignment to avoid pin conflicts when laser uses fan MOSFET.
   opt_set E0_AUTO_FAN_PIN -1
+
+  # Laser power path selection.
+  case "$LASER_OUTPUT" in
+    fan0)
+      # Default M106/M107 output on FAN0.
+      opt_disable_optional FAN0_PIN
+      ;;
+    bed)
+      # Reuse heated-bed MOSFET as FAN0 output for laser power.
+      # This disables heated bed support to avoid dual ownership of the same pin.
+      opt_set TEMP_SENSOR_BED 0
+      opt_set FAN0_PIN HEATER_BED_PIN
+      ;;
+    *)
+      echo "Invalid --laser-output '$LASER_OUTPUT' (use fan0 or bed)."
+      exit 2
+      ;;
+  esac
 
   # LCD selection
   [[ -n "$LCD_TYPE" ]] || LCD_TYPE="$(resolve_lcd_default)"
   case "$LCD_TYPE" in
     dwin)
+      if is_mks_gen_board; then
+        echo "DWIN LCD is not directly supported on MKS GEN boards in this script. Use --lcd none or a 12864 display."
+        exit 2
+      fi
       opt_enable SDSUPPORT
       opt_enable DWIN_CREALITY_LCD
-      opt_disable CR10_STOCKDISPLAY || true
-      opt_disable RET6_12864_LCD || true
-      opt_disable VET6_12864_LCD || true
+      opt_disable_optional CR10_STOCKDISPLAY
+      opt_disable_optional RET6_12864_LCD
+      opt_disable_optional VET6_12864_LCD
       ;;
     12864-ret6)
-      opt_disable DWIN_CREALITY_LCD || true
+      opt_disable_optional DWIN_CREALITY_LCD
       opt_enable CR10_STOCKDISPLAY
-      opt_enable RET6_12864_LCD || opt_add RET6_12864_LCD
-      opt_disable VET6_12864_LCD || true
+      if ! is_mks_gen_board; then
+        opt_enable RET6_12864_LCD || opt_add RET6_12864_LCD
+      fi
+      opt_disable_optional VET6_12864_LCD
       ;;
     12864-vet6)
-      opt_disable DWIN_CREALITY_LCD || true
+      if is_mks_gen_board; then
+        echo "VET6 12864 selector is not applicable to MKS GEN boards. Use --lcd 12864-ret6."
+        exit 2
+      fi
+      opt_disable_optional DWIN_CREALITY_LCD
       opt_enable CR10_STOCKDISPLAY
-      opt_disable RET6_12864_LCD || true
+      opt_disable_optional RET6_12864_LCD
       opt_enable VET6_12864_LCD || opt_add VET6_12864_LCD
       ;;
     none)
-      opt_disable DWIN_CREALITY_LCD || true
-      opt_disable CR10_STOCKDISPLAY || true
-      opt_disable RET6_12864_LCD || true
-      opt_disable VET6_12864_LCD || true
+      opt_disable_optional DWIN_CREALITY_LCD
+      opt_disable_optional CR10_STOCKDISPLAY
+      opt_disable_optional RET6_12864_LCD
+      opt_disable_optional VET6_12864_LCD
       ;;
     *)
       echo "Invalid --lcd '$LCD_TYPE' (use dwin, 12864-ret6, 12864-vet6, or none)."
