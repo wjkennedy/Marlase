@@ -92,6 +92,32 @@ To build and upload Marlin you will use one of these tools:
 - You can also use VSCode with devcontainer : See [Installing Marlin (VSCode devcontainer)](https://marlinfw.org/docs/basics/install_devcontainer_vscode.html).
 - You can still build Marlin with [Arduino IDE](//www.arduino.cc/en/main/software) : See [Building Marlin with Arduino](//marlinfw.org/docs/basics/install_arduino.html). We hope to improve the Arduino build experience, but at this time, PlatformIO is the preferred choice.
 
+### MKS Gen 1.2 Firmware Workflow (Terminal)
+
+For this repo, the simplest repeatable workflow for `BOARD_MKS_GEN_13` is to use the helper script:
+
+- Build for MKS Gen 1.2 with laser on heated-bed MOSFET and 12864 LCD:
+  - `./buildroot/bin/ender3_build --board BOARD_MKS_GEN_13 --laser-output bed --lcd 12864-ret6`
+- Build only (no config edits):
+  - `./buildroot/bin/ender3_build --board BOARD_MKS_GEN_13 --skip-config`
+- Upload over USB:
+  - `./buildroot/bin/ender3_build --board BOARD_MKS_GEN_13 --laser-output bed --lcd 12864-ret6 --upload`
+
+Recommended firmware management practice:
+
+1. Keep one branch per machine profile (for example `mks-gen12-laser-bed`).
+2. Commit every known-good build config before flashing.
+3. Tag known-good states (for example `mks-gen12-good-2026-02-15`).
+4. Keep the last working artifact path and config commit in your notes.
+5. Roll back by checking out the last good tag/commit and rebuilding.
+
+Useful quick checks:
+
+- Confirm target board/env before build:
+  - `./buildroot/bin/mfenvs -n`
+- Inspect local config deltas:
+  - `git diff -- Marlin/Configuration.h Marlin/Configuration_adv.h`
+
 ## 32-bit ARM boards
 
 Marlin is compatible with a plethora of 32-bit ARM boards, which offer ample computational power and memory and allows Marlin to deliver state-of-the-art performance and features we like to see in modern 3d printers. Some of the newer features in Marlin will require use of a 32-bit ARM board.

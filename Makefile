@@ -33,6 +33,7 @@ help:
 	@echo "Tasks for local development:"
 	@echo "make marlin                    : Build Marlin for the configured board"
 	@echo "make ender3                    : Configure + build Ender 3 BLTouch + laser (K-FAN1)"
+	@echo "make mksgen12                  : Configure + build MKS Gen 1.2 + laser on bed header + 12864 LCD"
 	@echo "make format-pins -j            : Reformat all pins files (-j for parallel execution)"
 	@echo "make validate-lines -j         : Validate line endings, fails on trailing whitespace, etc."
 	@echo "make validate-pins -j          : Validate all pins files, fails if any require reformatting"
@@ -71,6 +72,10 @@ marlin:
 ender3:
 	./buildroot/bin/ender3_build
 .PHONY: ender3
+
+mksgen12:
+	./buildroot/bin/ender3_build --board BOARD_MKS_GEN_13 --laser-output bed --lcd 12864-ret6
+.PHONY: mksgen12
 
 clean:
 	rm -rf .pio/build*
